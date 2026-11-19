@@ -1,5 +1,6 @@
 package com.example.monotodo.model
 
+import androidx.compose.runtime.Immutable
 import java.util.UUID
 
 enum class Priority(val label: String) {
@@ -21,6 +22,7 @@ enum class TodoFilter(val label: String) {
     DONE("Done")
 }
 
+@Immutable
 data class TodoItem(
     val id: String = UUID.randomUUID().toString(),
     val title: String,

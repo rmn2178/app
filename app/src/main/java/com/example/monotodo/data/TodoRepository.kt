@@ -10,6 +10,12 @@ import org.json.JSONObject
 class TodoRepository(context: Context) {
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
+    fun isSoundEnabled(): Boolean = prefs.getBoolean(KEY_SOUND_ENABLED, true)
+
+    fun setSoundEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_SOUND_ENABLED, enabled).apply()
+    }
+
     fun loadTasks(): List<TodoItem> {
         if (!prefs.getBoolean(KEY_INITIALIZED, false)) {
             val starter = defaultStarterTasks()
@@ -70,23 +76,23 @@ class TodoRepository(context: Context) {
         return listOf(
             TodoItem(
                 title = "Tap the circle to complete a task",
-                note = "Watch the smooth spring check animation and progress bar update.",
+                note = "Feel the tactile spring animation, particle sparkle, and chime.",
                 priority = Priority.HIGH,
                 category = TodoCategory.PERSONAL,
                 dueLabel = "Today",
                 createdAt = now
             ),
             TodoItem(
-                title = "Tap any card to edit details",
-                note = "Adjust priority, category, or due tag from the animated bottom sheet.",
+                title = "Tap any card to edit or expand notes",
+                note = "Customize priority, category, and due tags from the monochrome bottom sheet.",
                 priority = Priority.MEDIUM,
                 category = TodoCategory.WORK,
                 dueLabel = "Tomorrow",
                 createdAt = now - 1000L
             ),
             TodoItem(
-                title = "Try filtering by All, Active, or Done",
-                note = "Everything is saved offline automatically on your device.",
+                title = "Finish all tasks for a 100% burst",
+                note = "Toggle sound effects anytime using the speaker button in the top bar.",
                 isDone = true,
                 priority = Priority.LOW,
                 category = TodoCategory.STUDY,
@@ -99,6 +105,7 @@ class TodoRepository(context: Context) {
     companion object {
         private const val PREFS_NAME = "monotodo_prefs"
         private const val KEY_TASKS = "tasks_json"
-        private const val KEY_INITIALIZED = "initialized_v1"
+        private const val KEY_INITIALIZED = "initialized_v2"
+        private const val KEY_SOUND_ENABLED = "sound_enabled"
     }
 }

@@ -7,13 +7,13 @@ import androidx.compose.ui.graphics.Color
 
 object MonoPalette {
     val PureBlack = Color(0xFF000000)
-    val Obsidian = Color(0xFF0E0E10)
-    val Charcoal = Color(0xFF1F1F23)
-    val Graphite = Color(0xFF3E3E44)
-    val SlateGray = Color(0xFF787880)
-    val Silver = Color(0xFFC8C8CE)
-    val Mist = Color(0xFFECECEF)
-    val OffWhite = Color(0xFFF7F7F9)
+    val Obsidian = Color(0xFF0C0C0E)
+    val Charcoal = Color(0xFF1C1C20)
+    val Graphite = Color(0xFF3A3A40)
+    val SlateGray = Color(0xFF74747C)
+    val Silver = Color(0xFFC4C4CC)
+    val Mist = Color(0xFFEBEBEF)
+    val OffWhite = Color(0xFFF6F6F8)
     val PureWhite = Color(0xFFFFFFFF)
 }
 
