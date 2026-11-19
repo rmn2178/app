@@ -1,19 +1,12 @@
-# MonoTodo v4 — Minimalist Monochrome Android To-Do App
+# MonoTodo v5 — Smooth Minimalist Monochrome Android To-Do App
 
-Redesigned for a **clean, distraction-free black-to-white UI** and **locked high-FPS smoothness**.
+Clean black-to-white UI, smooth Release performance without R8 stripping issues, and customizable subtle sounds.
 
-## What Changed in v4
-- **Clean Minimalist UI**:
-  - Deep obsidian header with date, title, collapsible search bar, and a 3dp animated progress hairline
-  - Rounded luminous silver-to-white task sheet below so every card sits cleanly with sharp hairline contrast
-  - Minimalist task rows (no cluttered badge pills — just title, optional note, subtle category/due line, and an obsidian dot for High priority)
-- **Performance & Bug Fixes**:
-  - Moved `SoundPool` WAV preloading and `SharedPreferences` JSON writes off the main UI thread (`Dispatchers.IO`)
-  - Removed `composed {}` modifier allocations inside `LazyColumn` items and eliminated per-pixel disk writes while dragging the volume slider
-  - Zero infinite animation loops; cached gradient via `drawWithCache`; GitHub Actions builds an **R8-minified Release APK** (`app-release.apk`)
-- **Subtle Customizable Sounds**:
-  - Tap the top-right **Tune** icon to choose **Soft**, **Crisp**, or **Zen**, adjust volume, toggle per-event audio, or switch haptics.
+## What Was Fixed in v5
+- **Fixed broken 996 KB R8-stripped APK**: Disabled R8 minification/resource shrinking (`isMinifyEnabled = false`, `isShrinkResources = false`) while keeping `isDebuggable = false` so Compose runs at full Release speed without stripping classes or resources.
+- **Consistent Signing Keystore**: Bundled `app/monotodo.keystore` so every GitHub Actions build is signed with the same key and installs cleanly over previous builds.
+- **Lean Dependencies**: Replaced the 14 MB `material-icons-extended` library with `material-icons-core` for faster builds and a lean, working APK.
+- **Updated GitHub Actions**: Migrated to `actions/setup-java@v5`.
 
-## Build the `.apk`
-- **GitHub Actions**: Push the unzipped folder to your GitHub repo (`main` branch), open **Actions**, and download **`monotodo-release-apk`** (`app-release.apk`).
-- **Android Studio**: Open the unzipped folder and build the `release` or `debug` APK.
+## Install Note
+If you previously installed an older debug-signed version of **MonoTodo**, uninstall it once first so Android allows installing the newly signed Release APK. Future updates will install directly on top without uninstalling.

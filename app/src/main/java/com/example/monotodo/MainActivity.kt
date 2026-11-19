@@ -50,9 +50,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -330,7 +330,7 @@ fun MonoTodoScreen(repository: TodoRepository) {
                                 }
                             )
                             HeaderIconButton(
-                                icon = Icons.Default.Tune,
+                                icon = Icons.Default.Settings,
                                 contentDescription = "Sound and feel settings",
                                 active = false,
                                 onClick = {
@@ -825,7 +825,7 @@ private fun CleanMonoTaskRow(
                 modifier = Modifier.size(32.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Default.DeleteOutline,
+                    imageVector = Icons.Default.Delete,
                     contentDescription = "Delete task",
                     tint = MonoPalette.Silver,
                     modifier = Modifier.size(18.dp)
