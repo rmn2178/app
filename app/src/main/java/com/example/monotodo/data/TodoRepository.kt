@@ -2,6 +2,8 @@ package com.example.monotodo.data
 
 import android.content.Context
 import com.example.monotodo.model.Priority
+import com.example.monotodo.model.SoundPack
+import com.example.monotodo.model.SoundSettings
 import com.example.monotodo.model.TodoCategory
 import com.example.monotodo.model.TodoItem
 import org.json.JSONArray
@@ -10,10 +12,32 @@ import org.json.JSONObject
 class TodoRepository(context: Context) {
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    fun isSoundEnabled(): Boolean = prefs.getBoolean(KEY_SOUND_ENABLED, true)
+    fun loadSoundSettings(): SoundSettings {
+        val packName = prefs.getString(KEY_SOUND_PACK, SoundPack.SOFT.name) ?: SoundPack.SOFT.name
+        val pack = runCatching { SoundPack.valueOf(packName) }.getOrDefault(SoundPack.SOFT)
+        return SoundSettings(
+            enabled = prefs.getBoolean(KEY_SOUND_ENABLED, true),
+            volume = prefs.getFloat(KEY_SOUND_VOLUME, 0.35f),
+            pack = pack,
+            onComplete = prefs.getBoolean(KEY_SOUND_ON_COMPLETE, true),
+            onAdd = prefs.getBoolean(KEY_SOUND_ON_ADD, true),
+            onDelete = prefs.getBoolean(KEY_SOUND_ON_DELETE, false),
+            onTap = prefs.getBoolean(KEY_SOUND_ON_TAP, false),
+            hapticsEnabled = prefs.getBoolean(KEY_HAPTICS_ENABLED, true)
+        )
+    }
 
-    fun setSoundEnabled(enabled: Boolean) {
-        prefs.edit().putBoolean(KEY_SOUND_ENABLED, enabled).apply()
+    fun saveSoundSettings(s: SoundSettings) {
+        prefs.edit()
+            .putBoolean(KEY_SOUND_ENABLED, s.enabled)
+            .putFloat(KEY_SOUND_VOLUME, s.volume)
+            .putString(KEY_SOUND_PACK, s.pack.name)
+            .putBoolean(KEY_SOUND_ON_COMPLETE, s.onComplete)
+            .putBoolean(KEY_SOUND_ON_ADD, s.onAdd)
+            .putBoolean(KEY_SOUND_ON_DELETE, s.onDelete)
+            .putBoolean(KEY_SOUND_ON_TAP, s.onTap)
+            .putBoolean(KEY_HAPTICS_ENABLED, s.hapticsEnabled)
+            .apply()
     }
 
     fun loadTasks(): List<TodoItem> {
@@ -75,28 +99,26 @@ class TodoRepository(context: Context) {
         val now = System.currentTimeMillis()
         return listOf(
             TodoItem(
-                title = "Tap the circle to complete a task",
-                note = "Feel the tactile spring animation, particle sparkle, and chime.",
+                title = "Tap the circle to finish a task",
+                note = "Smooth spring animation with subtle sound.",
                 priority = Priority.HIGH,
                 category = TodoCategory.PERSONAL,
                 dueLabel = "Today",
                 createdAt = now
             ),
             TodoItem(
-                title = "Tap any card to edit or expand notes",
-                note = "Customize priority, category, and due tags from the monochrome bottom sheet.",
+                title = "Customize subtle sounds in top-right settings",
+                note = "Switch between Soft, Crisp, or Zen styles and adjust volume.",
                 priority = Priority.MEDIUM,
                 category = TodoCategory.WORK,
                 dueLabel = "Tomorrow",
                 createdAt = now - 1000L
             ),
             TodoItem(
-                title = "Finish all tasks for a 100% burst",
-                note = "Toggle sound effects anytime using the speaker button in the top bar.",
+                title = "Tap any task to edit or add notes",
                 isDone = true,
                 priority = Priority.LOW,
                 category = TodoCategory.STUDY,
-                dueLabel = "This Week",
                 createdAt = now - 2000L
             )
         )
@@ -105,7 +127,14 @@ class TodoRepository(context: Context) {
     companion object {
         private const val PREFS_NAME = "monotodo_prefs"
         private const val KEY_TASKS = "tasks_json"
-        private const val KEY_INITIALIZED = "initialized_v2"
+        private const val KEY_INITIALIZED = "initialized_v4"
         private const val KEY_SOUND_ENABLED = "sound_enabled"
+        private const val KEY_SOUND_VOLUME = "sound_volume"
+        private const val KEY_SOUND_PACK = "sound_pack"
+        private const val KEY_SOUND_ON_COMPLETE = "sound_on_complete"
+        private const val KEY_SOUND_ON_ADD = "sound_on_add"
+        private const val KEY_SOUND_ON_DELETE = "sound_on_delete"
+        private const val KEY_SOUND_ON_TAP = "sound_on_tap"
+        private const val KEY_HAPTICS_ENABLED = "haptics_enabled"
     }
 }

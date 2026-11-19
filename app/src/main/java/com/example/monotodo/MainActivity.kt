@@ -7,25 +7,16 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -50,22 +41,20 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.VolumeOff
-import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
@@ -76,11 +65,15 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -89,7 +82,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -97,6 +90,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -111,18 +106,22 @@ import androidx.compose.ui.unit.sp
 import com.example.monotodo.audio.SoundEffectPlayer
 import com.example.monotodo.data.TodoRepository
 import com.example.monotodo.model.Priority
+import com.example.monotodo.model.SoundPack
+import com.example.monotodo.model.SoundSettings
 import com.example.monotodo.model.TodoCategory
 import com.example.monotodo.model.TodoFilter
 import com.example.monotodo.model.TodoItem
-import com.example.monotodo.ui.components.AnimatedMonoProgressRing
-import com.example.monotodo.ui.components.AnimatedMonochromeBackdrop
-import com.example.monotodo.ui.components.CheckSparkleBurst
-import com.example.monotodo.ui.components.MonochromeCelebrationOverlay
-import com.example.monotodo.ui.components.bounceClick
+import com.example.monotodo.ui.components.MinimalProgressHairline
+import com.example.monotodo.ui.components.MonochromeGradientBackdrop
 import com.example.monotodo.ui.theme.MonoPalette
 import com.example.monotodo.ui.theme.MonoTodoTheme
-import kotlinx.coroutines.delay
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -150,10 +149,42 @@ fun MonoTodoScreen(repository: TodoRepository) {
     val haptic = LocalHapticFeedback.current
     val soundPlayer = remember { SoundEffectPlayer(context.applicationContext) }
 
-    var soundEnabled by remember { mutableStateOf(repository.isSoundEnabled()) }
-    LaunchedEffect(soundEnabled) {
-        soundPlayer.enabled = soundEnabled
-        repository.setSoundEnabled(soundEnabled)
+    var soundSettings by remember { mutableStateOf(repository.loadSoundSettings()) }
+    var tasks by remember { mutableStateOf(repository.loadTasks()) }
+    var selectedFilter by remember { mutableStateOf(TodoFilter.ALL) }
+    var searchOpen by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var showEditor by remember { mutableStateOf(false) }
+    var showSoundSettings by remember { mutableStateOf(false) }
+    var editingTask by remember { mutableStateOf<TodoItem?>(null) }
+
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
+    val todayLabel = remember {
+        SimpleDateFormat("EEE, MMM d", Locale.getDefault()).format(Date()).uppercase(Locale.getDefault())
+    }
+
+    // Load WAV sound assets off the UI thread so startup is instant
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            soundPlayer.preload()
+        }
+    }
+
+    // Persist sound settings off the UI thread
+    LaunchedEffect(soundSettings) {
+        soundPlayer.settings = soundSettings
+        withContext(Dispatchers.IO + NonCancellable) {
+            repository.saveSoundSettings(soundSettings)
+        }
+    }
+
+    // Persist tasks off the UI thread so tapping checkboxes never drops a frame
+    LaunchedEffect(tasks) {
+        withContext(Dispatchers.IO + NonCancellable) {
+            repository.saveTasks(tasks)
+        }
     }
 
     DisposableEffect(Unit) {
@@ -162,18 +193,10 @@ fun MonoTodoScreen(repository: TodoRepository) {
         }
     }
 
-    var tasks by remember { mutableStateOf(repository.loadTasks()) }
-    var selectedFilter by remember { mutableStateOf(TodoFilter.ALL) }
-    var searchQuery by remember { mutableStateOf("") }
-    var showEditor by remember { mutableStateOf(false) }
-    var editingTask by remember { mutableStateOf<TodoItem?>(null) }
-    var celebrationNonce by remember { mutableIntStateOf(0) }
-
-    val snackbarHostState = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
-
-    LaunchedEffect(tasks) {
-        repository.saveTasks(tasks)
+    fun triggerHaptic(type: HapticFeedbackType) {
+        if (soundSettings.hapticsEnabled) {
+            haptic.performHapticFeedback(type)
+        }
     }
 
     val filteredTasks by remember(tasks, selectedFilter, searchQuery) {
@@ -204,50 +227,27 @@ fun MonoTodoScreen(repository: TodoRepository) {
     val totalCount by remember(tasks) { derivedStateOf { tasks.size } }
     val doneCount by remember(tasks) { derivedStateOf { tasks.count { it.isDone } } }
     val activeCount by remember(tasks) { derivedStateOf { tasks.count { !it.isDone } } }
-    val targetProgress = if (totalCount == 0) 0f else doneCount.toFloat() / totalCount.toFloat()
+    val progress = if (totalCount == 0) 0f else doneCount.toFloat() / totalCount.toFloat()
 
-    val animatedProgress by animateFloatAsState(
-        targetValue = targetProgress,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessLow
-        ),
-        label = "barProgress"
-    )
-
-    // Smooth glossy shimmer gliding along the progress bar
-    val shimmerTransition = rememberInfiniteTransition(label = "barShimmer")
-    val shimmerOffset by shimmerTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2200, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "shimmerOffset"
-    )
-
-    // FAB rotation & scale when opening editor
     val fabRotation by animateFloatAsState(
         targetValue = if (showEditor) 45f else 0f,
         animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessMedium
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMediumLow
         ),
         label = "fabRotation"
     )
-    val fabScale by animateFloatAsState(
-        targetValue = if (showEditor) 0.88f else 1f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessMedium
-        ),
-        label = "fabScale"
-    )
+
+    val sheetBrush = remember {
+        Brush.verticalGradient(
+            0.0f to Color(0xFFF3F3F6),
+            0.55f to Color(0xFFF9F9FB),
+            1.0f to MonoPalette.PureWhite
+        )
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // Living black-to-white vertical gradient with drifting monochrome orbs
-        AnimatedMonochromeBackdrop()
+        MonochromeGradientBackdrop()
 
         Scaffold(
             containerColor = Color.Transparent,
@@ -255,30 +255,25 @@ fun MonoTodoScreen(repository: TodoRepository) {
             floatingActionButton = {
                 FloatingActionButton(
                     onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        triggerHaptic(HapticFeedbackType.TextHandleMove)
                         soundPlayer.playTap()
                         editingTask = null
                         showEditor = true
                     },
-                    modifier = Modifier
-                        .navigationBarsPadding()
-                        .graphicsLayer {
-                            scaleX = fabScale
-                            scaleY = fabScale
-                        },
+                    modifier = Modifier.navigationBarsPadding(),
                     shape = CircleShape,
                     containerColor = MonoPalette.PureBlack,
                     contentColor = MonoPalette.PureWhite,
                     elevation = FloatingActionButtonDefaults.elevation(
-                        defaultElevation = 10.dp,
-                        pressedElevation = 14.dp
+                        defaultElevation = 4.dp,
+                        pressedElevation = 8.dp
                     )
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
                         contentDescription = "Add task",
                         modifier = Modifier
-                            .size(26.dp)
+                            .size(25.dp)
                             .graphicsLayer { rotationZ = fabRotation }
                     )
                 }
@@ -288,370 +283,321 @@ fun MonoTodoScreen(repository: TodoRepository) {
                 modifier = Modifier
                     .fillMaxSize()
                     .statusBarsPadding()
-                    .padding(bottom = innerPadding.calculateBottomPadding())
-                    .padding(horizontal = 20.dp)
             ) {
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Monochrome Obsidian Header with Sound Toggle & Clear Done
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                // Clean Obsidian Header Area
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, vertical = 16.dp)
                 ) {
-                    Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = todayLabel,
+                                style = MaterialTheme.typography.labelSmall,
+                                letterSpacing = 2.sp,
+                                color = MonoPalette.Silver
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Tasks",
+                                style = MaterialTheme.typography.headlineLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                letterSpacing = (-0.5).sp,
+                                color = MonoPalette.PureWhite
+                            )
+                        }
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            HeaderIconButton(
+                                icon = if (searchOpen) Icons.Default.Close else Icons.Default.Search,
+                                contentDescription = if (searchOpen) "Close search" else "Search tasks",
+                                active = searchOpen,
+                                onClick = {
+                                    triggerHaptic(HapticFeedbackType.TextHandleMove)
+                                    soundPlayer.playTap()
+                                    if (searchOpen) {
+                                        searchQuery = ""
+                                    }
+                                    searchOpen = !searchOpen
+                                }
+                            )
+                            HeaderIconButton(
+                                icon = Icons.Default.Tune,
+                                contentDescription = "Sound and feel settings",
+                                active = false,
+                                onClick = {
+                                    triggerHaptic(HapticFeedbackType.TextHandleMove)
+                                    soundPlayer.playTap()
+                                    showSoundSettings = true
+                                }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Minimal Progress Line + Subtle Status
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        AnimatedContent(
+                            targetState = when {
+                                totalCount == 0 -> "No tasks yet"
+                                activeCount == 0 -> "All done"
+                                else -> "$activeCount remaining"
+                            },
+                            transitionSpec = { fadeIn(tween(160)) togetherWith fadeOut(tween(120)) },
+                            label = "statusAnim"
+                        ) { status ->
+                            Text(
+                                text = status,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MonoPalette.Silver
+                            )
+                        }
+
                         Text(
-                            text = "MONOTODO",
+                            text = "${(progress * 100).toInt()}%",
                             style = MaterialTheme.typography.labelMedium,
-                            letterSpacing = 3.sp,
-                            color = MonoPalette.Silver
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "Focus List",
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.Bold,
+                            fontWeight = FontWeight.Medium,
                             color = MonoPalette.PureWhite
                         )
                     }
 
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        androidx.compose.animation.AnimatedVisibility(
-                            visible = doneCount > 0,
-                            enter = fadeIn() + scaleIn(initialScale = 0.85f),
-                            exit = fadeOut() + scaleOut(targetScale = 0.85f)
-                        ) {
-                            Surface(
-                                modifier = Modifier.bounceClick {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    soundPlayer.playDelete()
-                                    val removed = tasks.filter { it.isDone }
-                                    tasks = tasks.filterNot { it.isDone }
-                                    scope.launch {
-                                        val result = snackbarHostState.showSnackbar(
-                                            message = "Cleared ${removed.size} completed task(s)",
-                                            actionLabel = "Undo",
-                                            duration = SnackbarDuration.Short
-                                        )
-                                        if (result == SnackbarResult.ActionPerformed) {
-                                            soundPlayer.playAdd()
-                                            tasks = tasks + removed
-                                        }
-                                    }
-                                },
-                                shape = RoundedCornerShape(50),
-                                color = Color.White.copy(alpha = 0.14f),
-                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.24f))
-                            ) {
-                                Text(
-                                    text = "Clear Done",
-                                    modifier = Modifier.padding(horizontal = 13.dp, vertical = 7.dp),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MonoPalette.PureWhite,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        }
+                    Spacer(modifier = Modifier.height(8.dp))
 
-                        // Sound toggle button
-                        Surface(
+                    MinimalProgressHairline(progress = progress)
+
+                    // Collapsible Search Bar (only takes space when user taps Search)
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = searchOpen,
+                        enter = expandVertically(tween(200)) + fadeIn(tween(180)),
+                        exit = shrinkVertically(tween(160)) + fadeOut(tween(120))
+                    ) {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
                             modifier = Modifier
-                                .size(38.dp)
-                                .bounceClick {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    val next = !soundEnabled
-                                    soundEnabled = next
-                                    if (next) {
-                                        soundPlayer.enabled = true
-                                        soundPlayer.playTap()
-                                    }
-                                },
-                            shape = CircleShape,
-                            color = Color.White.copy(alpha = if (soundEnabled) 0.16f else 0.07f),
-                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.24f))
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                AnimatedContent(
-                                    targetState = soundEnabled,
-                                    transitionSpec = {
-                                        (scaleIn(initialScale = 0.7f) + fadeIn())
-                                            .togetherWith(scaleOut(targetScale = 0.7f) + fadeOut())
-                                    },
-                                    label = "soundIconAnim"
-                                ) { isOn ->
-                                    Icon(
-                                        imageVector = if (isOn) Icons.Default.VolumeUp else Icons.Default.VolumeOff,
-                                        contentDescription = if (isOn) "Mute sounds" else "Enable sounds",
-                                        tint = if (isOn) MonoPalette.PureWhite else MonoPalette.SlateGray,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
-                        }
+                                .fillMaxWidth()
+                                .padding(top = 14.dp),
+                            placeholder = {
+                                Text(
+                                    text = "Search...",
+                                    color = MonoPalette.MutedGray
+                                )
+                            },
+                            singleLine = true,
+                            shape = RoundedCornerShape(14.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = MonoPalette.PureWhite,
+                                unfocusedTextColor = MonoPalette.PureWhite,
+                                focusedContainerColor = Color.White.copy(alpha = 0.08f),
+                                unfocusedContainerColor = Color.White.copy(alpha = 0.06f),
+                                focusedBorderColor = Color.White.copy(alpha = 0.5f),
+                                unfocusedBorderColor = Color.White.copy(alpha = 0.16f),
+                                cursorColor = MonoPalette.PureWhite
+                            )
+                        )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Frosted Obsidian Progress Card with Ring + Shimmering Bar + Rolling Counter
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(22.dp),
-                    color = Color.White.copy(alpha = 0.08f),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.17f))
+                // Clean Luminous White-Gradient Sheet for Tasks
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+                        .background(sheetBrush)
+                        .padding(bottom = innerPadding.calculateBottomPadding())
                 ) {
+                    // Clean Minimal Segmented Filter Row + Subtle Clear Done
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp),
+                            .padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        AnimatedMonoProgressRing(
-                            progress = targetProgress,
-                            ringSize = 54.dp,
-                            strokeWidth = 5.dp
-                        )
-
-                        Spacer(modifier = Modifier.width(14.dp))
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            AnimatedContent(
-                                targetState = if (totalCount > 0 && activeCount == 0) {
-                                    "All tasks complete"
-                                } else {
-                                    "$activeCount active  ·  $doneCount done"
-                                },
-                                transitionSpec = {
-                                    (slideInVertically { it / 2 } + fadeIn())
-                                        .togetherWith(slideOutVertically { -it / 2 } + fadeOut())
-                                },
-                                label = "summaryCounter"
-                            ) { summary ->
-                                Text(
-                                    text = summary,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MonoPalette.PureWhite
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(10.dp))
-
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(7.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.White.copy(alpha = 0.15f))
-                            ) {
-                                val fillFraction = animatedProgress.coerceIn(0f, 1f)
-                                if (fillFraction > 0.01f) {
-                                    val shimmerBrush = Brush.horizontalGradient(
-                                        0.0f to MonoPalette.Silver,
-                                        (shimmerOffset * 0.8f + 0.1f).coerceIn(0.1f, 0.9f) to MonoPalette.PureWhite,
-                                        1.0f to MonoPalette.Silver
-                                    )
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth(fillFraction)
-                                            .height(7.dp)
-                                            .clip(CircleShape)
-                                            .background(shimmerBrush)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Search bar
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = {
-                        Text(
-                            text = "Search tasks...",
-                            color = MonoPalette.Silver.copy(alpha = 0.8f)
-                        )
-                    },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = null,
-                            tint = MonoPalette.Silver
-                        )
-                    },
-                    trailingIcon = {
-                        androidx.compose.animation.AnimatedVisibility(
-                            visible = searchQuery.isNotEmpty(),
-                            enter = fadeIn() + scaleIn(),
-                            exit = fadeOut() + scaleOut()
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(Color(0xFFE7E7EC))
+                                .padding(3.dp),
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
-                            IconButton(onClick = {
-                                soundPlayer.playTap()
-                                searchQuery = ""
-                            }) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Clear search",
-                                    tint = MonoPalette.PureWhite
+                            TodoFilter.entries.forEach { filter ->
+                                val isSelected = selectedFilter == filter
+                                val bg by animateColorAsState(
+                                    targetValue = if (isSelected) MonoPalette.PureBlack else Color.Transparent,
+                                    animationSpec = tween(160),
+                                    label = "tabBg"
                                 )
+                                val fg by animateColorAsState(
+                                    targetValue = if (isSelected) MonoPalette.PureWhite else MonoPalette.Graphite,
+                                    animationSpec = tween(160),
+                                    label = "tabFg"
+                                )
+
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(50))
+                                        .background(bg)
+                                        .clickable {
+                                            if (selectedFilter != filter) {
+                                                triggerHaptic(HapticFeedbackType.TextHandleMove)
+                                                soundPlayer.playTap()
+                                                selectedFilter = filter
+                                            }
+                                        }
+                                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = filter.label,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                                        color = fg
+                                    )
+                                }
                             }
                         }
-                    },
-                    singleLine = true,
-                    shape = RoundedCornerShape(16.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = MonoPalette.PureWhite,
-                        unfocusedTextColor = MonoPalette.PureWhite,
-                        focusedContainerColor = Color.Black.copy(alpha = 0.36f),
-                        unfocusedContainerColor = Color.Black.copy(alpha = 0.24f),
-                        focusedBorderColor = Color.White.copy(alpha = 0.72f),
-                        unfocusedBorderColor = Color.White.copy(alpha = 0.22f),
-                        cursorColor = MonoPalette.PureWhite
-                    )
-                )
 
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Animated Segmented Filter Pills with live counts
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    TodoFilter.entries.forEach { filter ->
-                        val isSelected = selectedFilter == filter
-                        val countForFilter = when (filter) {
-                            TodoFilter.ALL -> totalCount
-                            TodoFilter.ACTIVE -> activeCount
-                            TodoFilter.DONE -> doneCount
-                        }
-                        val pillBg by animateColorAsState(
-                            targetValue = if (isSelected) {
-                                MonoPalette.PureWhite
-                            } else {
-                                Color.Black.copy(alpha = 0.28f)
-                            },
-                            animationSpec = tween(220),
-                            label = "pillBg"
-                        )
-                        val pillText by animateColorAsState(
-                            targetValue = if (isSelected) {
-                                MonoPalette.PureBlack
-                            } else {
-                                MonoPalette.Mist
-                            },
-                            animationSpec = tween(220),
-                            label = "pillText"
-                        )
-
-                        Surface(
-                            modifier = Modifier.bounceClick(scaleDown = 0.93f) {
-                                if (selectedFilter != filter) {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    soundPlayer.playTap()
-                                    selectedFilter = filter
-                                }
-                            },
-                            shape = RoundedCornerShape(50),
-                            color = pillBg,
-                            border = BorderStroke(
-                                1.dp,
-                                if (isSelected) MonoPalette.PureWhite else Color.White.copy(alpha = 0.20f)
-                            )
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = doneCount > 0,
+                            enter = fadeIn(tween(150)),
+                            exit = fadeOut(tween(120))
                         ) {
                             Text(
-                                text = "${filter.label} ($countForFilter)",
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                color = pillText
+                                text = "Clear done",
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        triggerHaptic(HapticFeedbackType.LongPress)
+                                        soundPlayer.playDelete()
+                                        val removed = tasks.filter { it.isDone }
+                                        tasks = tasks.filterNot { it.isDone }
+                                        scope.launch {
+                                            val result = snackbarHostState.showSnackbar(
+                                                message = "Cleared ${removed.size} completed",
+                                                actionLabel = "Undo",
+                                                duration = SnackbarDuration.Short
+                                            )
+                                            if (result == SnackbarResult.ActionPerformed) {
+                                                soundPlayer.playAdd()
+                                                tasks = tasks + removed
+                                            }
+                                        }
+                                    }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MonoPalette.MutedGray,
+                                fontWeight = FontWeight.Medium
                             )
                         }
                     }
-                }
 
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Smooth GPU-accelerated Task List
-                if (filteredTasks.isEmpty()) {
-                    EmptyMonoState(isCompletelyEmpty = tasks.isEmpty())
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(top = 2.dp, bottom = 108.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        itemsIndexed(
-                            items = filteredTasks,
-                            key = { _, task -> task.id },
-                            contentType = { _, task -> task.isDone }
-                        ) { index, task ->
-                            AnimatedMonoTaskCard(
-                                modifier = Modifier.animateItemPlacement(
-                                    animationSpec = spring(
-                                        dampingRatio = Spring.DampingRatioLowBouncy,
-                                        stiffness = Spring.StiffnessLow
-                                    )
-                                ),
-                                entryIndex = index,
-                                task = task,
-                                onToggle = {
-                                    val willBeDone = !task.isDone
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    val updated = tasks.map {
-                                        if (it.id == task.id) it.copy(isDone = willBeDone) else it
-                                    }
-                                    tasks = updated
-                                    if (willBeDone) {
-                                        val allCompleteNow = updated.isNotEmpty() && updated.all { it.isDone }
-                                        if (allCompleteNow) {
-                                            celebrationNonce += 1
-                                            soundPlayer.playAllDone()
-                                        } else {
-                                            soundPlayer.playComplete()
-                                        }
+                    // Clean, Airy, High-FPS Task List
+                    if (filteredTasks.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.padding(bottom = 72.dp)
+                            ) {
+                                Text(
+                                    text = if (tasks.isEmpty()) "All clear" else "Nothing here",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MonoPalette.PureBlack
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = if (tasks.isEmpty()) {
+                                        "Tap + to add your first task."
                                     } else {
-                                        soundPlayer.playUncheck()
-                                    }
-                                },
-                                onEdit = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    soundPlayer.playTap()
-                                    editingTask = task
-                                    showEditor = true
-                                },
-                                onDelete = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    soundPlayer.playDelete()
-                                    tasks = tasks.filterNot { it.id == task.id }
-                                    scope.launch {
-                                        val result = snackbarHostState.showSnackbar(
-                                            message = "Removed '${task.title}'",
-                                            actionLabel = "Undo",
-                                            duration = SnackbarDuration.Short
+                                        "Try another filter or search term."
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MonoPalette.MutedGray
+                                )
+                            }
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(
+                                start = 20.dp,
+                                end = 20.dp,
+                                top = 4.dp,
+                                bottom = 104.dp
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            items(
+                                items = filteredTasks,
+                                key = { it.id },
+                                contentType = { it.isDone }
+                            ) { task ->
+                                CleanMonoTaskRow(
+                                    modifier = Modifier.animateItemPlacement(
+                                        animationSpec = spring(
+                                            dampingRatio = Spring.DampingRatioNoBouncy,
+                                            stiffness = Spring.StiffnessMediumLow
                                         )
-                                        if (result == SnackbarResult.ActionPerformed) {
-                                            soundPlayer.playAdd()
-                                            tasks = tasks + task
+                                    ),
+                                    task = task,
+                                    onToggle = {
+                                        val willBeDone = !task.isDone
+                                        triggerHaptic(HapticFeedbackType.LongPress)
+                                        tasks = tasks.map {
+                                            if (it.id == task.id) it.copy(isDone = willBeDone) else it
+                                        }
+                                        if (willBeDone) {
+                                            soundPlayer.playComplete()
+                                        } else {
+                                            soundPlayer.playTap()
+                                        }
+                                    },
+                                    onEdit = {
+                                        triggerHaptic(HapticFeedbackType.TextHandleMove)
+                                        soundPlayer.playTap()
+                                        editingTask = task
+                                        showEditor = true
+                                    },
+                                    onDelete = {
+                                        triggerHaptic(HapticFeedbackType.LongPress)
+                                        soundPlayer.playDelete()
+                                        tasks = tasks.filterNot { it.id == task.id }
+                                        scope.launch {
+                                            val result = snackbarHostState.showSnackbar(
+                                                message = "Removed '${task.title}'",
+                                                actionLabel = "Undo",
+                                                duration = SnackbarDuration.Short
+                                            )
+                                            if (result == SnackbarResult.ActionPerformed) {
+                                                soundPlayer.playAdd()
+                                                tasks = tasks + task
+                                            }
                                         }
                                     }
-                                }
-                            )
+                                )
+                            }
                         }
                     }
                 }
             }
         }
-
-        // Full-screen monochrome particle burst on 100% completion
-        MonochromeCelebrationOverlay(burstNonce = celebrationNonce)
 
         if (showEditor) {
             val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -665,15 +611,12 @@ fun MonoTodoScreen(repository: TodoRepository) {
                 MonoTaskEditorSheet(
                     initialTask = editingTask,
                     onChipTap = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        triggerHaptic(HapticFeedbackType.TextHandleMove)
                         soundPlayer.playTap()
                     },
-                    onCancel = {
-                        soundPlayer.playTap()
-                        showEditor = false
-                    },
+                    onCancel = { showEditor = false },
                     onSave = { title, note, priority, category, dueLabel ->
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        triggerHaptic(HapticFeedbackType.LongPress)
                         soundPlayer.playAdd()
                         val current = editingTask
                         tasks = if (current == null) {
@@ -706,256 +649,186 @@ fun MonoTodoScreen(repository: TodoRepository) {
                 )
             }
         }
-    }
-}
 
-@Composable
-private fun EmptyMonoState(isCompletelyEmpty: Boolean) {
-    val pulse = rememberInfiniteTransition(label = "emptyPulse")
-    val iconScale by pulse.animateFloat(
-        initialValue = 0.94f,
-        targetValue = 1.07f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1700, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "iconScale"
-    )
-    val floatOffset by pulse.animateFloat(
-        initialValue = -5f,
-        targetValue = 5f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2200, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "floatY"
-    )
-
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(bottom = 64.dp)
-        ) {
-            Surface(
-                modifier = Modifier
-                    .size(66.dp)
-                    .graphicsLayer {
-                        scaleX = iconScale
-                        scaleY = iconScale
-                        translationY = floatOffset
-                    },
-                shape = CircleShape,
-                color = MonoPalette.PureBlack.copy(alpha = 0.88f),
-                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.3f))
+        if (showSoundSettings) {
+            val settingsSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+            ModalBottomSheet(
+                onDismissRequest = { showSoundSettings = false },
+                sheetState = settingsSheetState,
+                containerColor = MonoPalette.Obsidian,
+                contentColor = MonoPalette.PureWhite,
+                shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.DoneAll,
-                        contentDescription = null,
-                        tint = MonoPalette.PureWhite,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
+                SoundSettingsSheet(
+                    settings = soundSettings,
+                    onUpdate = { updated -> soundSettings = updated },
+                    onPreviewPack = { pack, vol ->
+                        triggerHaptic(HapticFeedbackType.TextHandleMove)
+                        soundPlayer.previewPack(pack, vol)
+                    },
+                    onDone = { showSoundSettings = false }
+                )
             }
-            Spacer(modifier = Modifier.height(14.dp))
-            Text(
-                text = if (isCompletelyEmpty) "All clear" else "No matching tasks",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MonoPalette.PureBlack
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = if (isCompletelyEmpty) {
-                    "Tap + to create your next task."
-                } else {
-                    "Try another filter or search keyword."
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MonoPalette.Graphite
-            )
         }
     }
 }
 
 @Composable
-private fun AnimatedMonoTaskCard(
+private fun HeaderIconButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    active: Boolean,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(38.dp)
+            .clip(CircleShape)
+            .background(if (active) MonoPalette.PureWhite else Color.White.copy(alpha = 0.12f))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = if (active) MonoPalette.PureBlack else MonoPalette.PureWhite,
+            modifier = Modifier.size(18.dp)
+        )
+    }
+}
+
+@Composable
+private fun CleanMonoTaskRow(
     modifier: Modifier = Modifier,
-    entryIndex: Int,
     task: TodoItem,
     onToggle: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
-    // Staggered GPU entrance animation
-    val enterAnim = remember { Animatable(0f) }
-    LaunchedEffect(Unit) {
-        delay((entryIndex.coerceAtMost(8) * 35).toLong())
-        enterAnim.animateTo(
-            targetValue = 1f,
-            animationSpec = spring(
-                dampingRatio = Spring.DampingRatioLowBouncy,
-                stiffness = Spring.StiffnessMediumLow
-            )
-        )
-    }
-
-    val cardAlpha by animateFloatAsState(
-        targetValue = if (task.isDone) 0.74f else 0.98f,
-        animationSpec = tween(260),
-        label = "cardAlpha"
-    )
-    val cardElevation by animateDpAsState(
-        targetValue = if (task.isDone) 0.dp else 5.dp,
-        animationSpec = tween(260),
-        label = "cardElevation"
+    val rowAlpha by animateFloatAsState(
+        targetValue = if (task.isDone) 0.56f else 1f,
+        animationSpec = tween(180),
+        label = "rowAlpha"
     )
     val checkScale by animateFloatAsState(
-        targetValue = if (task.isDone) 1.08f else 1.0f,
+        targetValue = if (task.isDone) 1.06f else 1f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessMedium
         ),
         label = "checkScale"
     )
-    val checkBg by animateColorAsState(
-        targetValue = if (task.isDone) MonoPalette.PureBlack else Color.Transparent,
-        animationSpec = tween(220),
-        label = "checkBg"
-    )
-    val cardContainer by animateColorAsState(
-        targetValue = if (task.isDone) MonoPalette.Mist else MonoPalette.PureWhite,
-        animationSpec = tween(260),
-        label = "cardBg"
-    )
 
-    Card(
+    val metaText = remember(task.category, task.dueLabel) {
+        buildString {
+            append(task.category.label)
+            if (task.dueLabel.isNotBlank()) {
+                append(" · ")
+                append(task.dueLabel)
+            }
+        }
+    }
+
+    Surface(
         modifier = modifier
             .fillMaxWidth()
-            .graphicsLayer {
-                val p = enterAnim.value
-                alpha = p * cardAlpha
-                translationY = (1f - p) * 28f
-                scaleX = 0.96f + 0.04f * p
-                scaleY = 0.96f + 0.04f * p
-            }
-            .animateContentSize(
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioNoBouncy,
-                    stiffness = Spring.StiffnessMediumLow
-                )
-            )
-            .bounceClick(scaleDown = 0.98f, onClick = onEdit),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = cardContainer),
-        border = BorderStroke(
-            width = 1.dp,
-            color = if (task.isDone) MonoPalette.Silver else Color.White
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = cardElevation)
+            .graphicsLayer { alpha = rowAlpha },
+        shape = RoundedCornerShape(16.dp),
+        color = MonoPalette.PureWhite,
+        border = BorderStroke(1.dp, MonoPalette.Hairline),
+        onClick = onEdit
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 14.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.Top
+            verticalAlignment = Alignment.CenterVertically
         ) {
+            // Tactile minimalist circle checkbox
             Box(
-                modifier = Modifier.size(36.dp),
+                modifier = Modifier
+                    .size(24.dp)
+                    .graphicsLayer {
+                        scaleX = checkScale
+                        scaleY = checkScale
+                    }
+                    .clip(CircleShape)
+                    .background(if (task.isDone) MonoPalette.PureBlack else Color.Transparent)
+                    .border(
+                        width = 1.8.dp,
+                        color = if (task.isDone) MonoPalette.PureBlack else MonoPalette.Graphite,
+                        shape = CircleShape
+                    )
+                    .clickable(onClick = onToggle),
                 contentAlignment = Alignment.Center
             ) {
-                CheckSparkleBurst(trigger = task.isDone)
-
-                Box(
-                    modifier = Modifier
-                        .size(26.dp)
-                        .graphicsLayer {
-                            scaleX = checkScale
-                            scaleY = checkScale
-                        }
-                        .clip(CircleShape)
-                        .background(checkBg)
-                        .border(
-                            width = 2.dp,
-                            color = if (task.isDone) MonoPalette.PureBlack else MonoPalette.Graphite,
-                            shape = CircleShape
-                        )
-                        .clickable(onClick = onToggle),
-                    contentAlignment = Alignment.Center
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = task.isDone,
+                    enter = scaleIn(tween(150)) + fadeIn(tween(120)),
+                    exit = scaleOut(tween(100)) + fadeOut(tween(100))
                 ) {
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = task.isDone,
-                        enter = scaleIn(
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioMediumBouncy,
-                                stiffness = Spring.StiffnessMedium
-                            )
-                        ) + fadeIn(),
-                        exit = scaleOut() + fadeOut()
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = "Completed",
-                            tint = MonoPalette.PureWhite,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = "Completed",
+                        tint = MonoPalette.PureWhite,
+                        modifier = Modifier.size(14.dp)
+                    )
                 }
             }
 
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(14.dp))
 
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = task.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    textDecoration = if (task.isDone) TextDecoration.LineThrough else TextDecoration.None,
-                    color = if (task.isDone) MonoPalette.SlateGray else MonoPalette.PureBlack,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                if (task.note.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(3.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (task.priority == Priority.HIGH && !task.isDone) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(MonoPalette.PureBlack)
+                        )
+                        Spacer(modifier = Modifier.width(7.dp))
+                    }
                     Text(
-                        text = task.note,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MonoPalette.Graphite,
+                        text = task.title,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium,
+                        textDecoration = if (task.isDone) TextDecoration.LineThrough else TextDecoration.None,
+                        color = if (task.isDone) MonoPalette.MutedGray else MonoPalette.PureBlack,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val isHigh = task.priority == Priority.HIGH && !task.isDone
-                    MonoTag(
-                        text = task.priority.label,
-                        inverted = isHigh
+                if (task.note.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = task.note,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MonoPalette.MutedGray,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
-                    MonoTag(text = task.category.label, inverted = false)
-                    if (task.dueLabel.isNotBlank()) {
-                        MonoTag(text = task.dueLabel, inverted = false)
-                    }
                 }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = metaText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MonoPalette.MutedGray
+                )
             }
 
             IconButton(
                 onClick = onDelete,
-                modifier = Modifier.size(34.dp)
+                modifier = Modifier.size(32.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.DeleteOutline,
                     contentDescription = "Delete task",
-                    tint = MonoPalette.SlateGray
+                    tint = MonoPalette.Silver,
+                    modifier = Modifier.size(18.dp)
                 )
             }
         }
@@ -963,18 +836,215 @@ private fun AnimatedMonoTaskCard(
 }
 
 @Composable
-private fun MonoTag(text: String, inverted: Boolean) {
-    Surface(
-        color = if (inverted) MonoPalette.PureBlack else MonoPalette.Mist,
-        shape = RoundedCornerShape(8.dp),
-        border = if (inverted) null else BorderStroke(0.8.dp, MonoPalette.Silver)
+private fun SoundSettingsSheet(
+    settings: SoundSettings,
+    onUpdate: (SoundSettings) -> Unit,
+    onPreviewPack: (SoundPack, Float) -> Unit,
+    onDone: () -> Unit
+) {
+    // Keep slider state local while dragging so SharedPreferences isn't spammed 60x/sec
+    var sliderVolume by remember(settings.volume) { mutableFloatStateOf(settings.volume) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .navigationBarsPadding()
+            .padding(horizontal = 22.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Text(
-            text = text,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-            style = MaterialTheme.typography.labelSmall,
-            color = if (inverted) MonoPalette.PureWhite else MonoPalette.Charcoal,
-            fontWeight = if (inverted) FontWeight.SemiBold else FontWeight.Medium
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = "Sound & Feel",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MonoPalette.PureWhite
+                )
+                Text(
+                    text = "Customize subtle audio & haptics",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MonoPalette.Silver
+                )
+            }
+            TextButton(onClick = onDone) {
+                Text("Done", color = MonoPalette.PureWhite, fontWeight = FontWeight.SemiBold)
+            }
+        }
+
+        SettingToggleRow(
+            title = "Sound Effects",
+            subtitle = "Master audio toggle",
+            checked = settings.enabled,
+            onCheckedChange = { onUpdate(settings.copy(enabled = it)) }
+        )
+
+        if (settings.enabled) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "VOLUME",
+                        style = MaterialTheme.typography.labelSmall,
+                        letterSpacing = 1.5.sp,
+                        color = MonoPalette.Silver
+                    )
+                    Text(
+                        text = "${(sliderVolume * 100).toInt()}%",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MonoPalette.PureWhite,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                Slider(
+                    value = sliderVolume,
+                    onValueChange = { sliderVolume = it },
+                    onValueChangeFinished = {
+                        onUpdate(settings.copy(volume = sliderVolume))
+                        onPreviewPack(settings.pack, sliderVolume)
+                    },
+                    valueRange = 0.05f..1f,
+                    colors = SliderDefaults.colors(
+                        thumbColor = MonoPalette.PureWhite,
+                        activeTrackColor = MonoPalette.PureWhite,
+                        inactiveTrackColor = MonoPalette.Graphite
+                    )
+                )
+            }
+
+            Text(
+                text = "STYLE (TAP TO PREVIEW)",
+                style = MaterialTheme.typography.labelSmall,
+                letterSpacing = 1.5.sp,
+                color = MonoPalette.Silver
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SoundPack.entries.forEach { pack ->
+                    val isSelected = settings.pack == pack
+                    Surface(
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(14.dp),
+                        color = if (isSelected) MonoPalette.PureWhite else MonoPalette.Charcoal,
+                        border = BorderStroke(
+                            1.dp,
+                            if (isSelected) MonoPalette.PureWhite else MonoPalette.Graphite
+                        ),
+                        onClick = {
+                            onUpdate(settings.copy(pack = pack))
+                            onPreviewPack(pack, sliderVolume)
+                        }
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = pack.label,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (isSelected) MonoPalette.PureBlack else MonoPalette.PureWhite
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = pack.subtitle,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (isSelected) MonoPalette.Graphite else MonoPalette.Silver,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+
+            Text(
+                text = "PLAY SOUND ON",
+                style = MaterialTheme.typography.labelSmall,
+                letterSpacing = 1.5.sp,
+                color = MonoPalette.Silver
+            )
+            SettingToggleRow(
+                title = "Task completed",
+                subtitle = "Soft chime on check-off",
+                checked = settings.onComplete,
+                onCheckedChange = { onUpdate(settings.copy(onComplete = it)) }
+            )
+            SettingToggleRow(
+                title = "Task added",
+                subtitle = "Gentle note on save",
+                checked = settings.onAdd,
+                onCheckedChange = { onUpdate(settings.copy(onAdd = it)) }
+            )
+            SettingToggleRow(
+                title = "Task deleted",
+                subtitle = "Muted low sweep",
+                checked = settings.onDelete,
+                onCheckedChange = { onUpdate(settings.copy(onDelete = it)) }
+            )
+            SettingToggleRow(
+                title = "UI taps & filters",
+                subtitle = "Micro-tick on buttons",
+                checked = settings.onTap,
+                onCheckedChange = { onUpdate(settings.copy(onTap = it)) }
+            )
+        }
+
+        SettingToggleRow(
+            title = "Haptic Feedback",
+            subtitle = "Subtle vibration on actions",
+            checked = settings.hapticsEnabled,
+            onCheckedChange = { onUpdate(settings.copy(hapticsEnabled = it)) }
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+    }
+}
+
+@Composable
+private fun SettingToggleRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = MonoPalette.PureWhite
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MonoPalette.Silver
+            )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = MonoPalette.PureBlack,
+                checkedTrackColor = MonoPalette.PureWhite,
+                uncheckedThumbColor = MonoPalette.Silver,
+                uncheckedTrackColor = MonoPalette.Charcoal,
+                uncheckedBorderColor = MonoPalette.Graphite
+            )
         )
     }
 }
@@ -993,29 +1063,39 @@ private fun MonoTaskEditorSheet(
     var category by remember { mutableStateOf(initialTask?.category ?: TodoCategory.PERSONAL) }
     var dueLabel by remember { mutableStateOf(initialTask?.dueLabel.orEmpty()) }
 
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        if (initialTask == null) {
+            focusRequester.requestFocus()
+        }
+    }
+
     val dueOptions = listOf("", "Today", "Tomorrow", "This Week")
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
             .imePadding()
             .navigationBarsPadding()
-            .padding(horizontal = 20.dp, vertical = 8.dp),
+            .padding(horizontal = 22.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(
             text = if (initialTask == null) "New Task" else "Edit Task",
             style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.SemiBold,
             color = MonoPalette.PureWhite
         )
 
         OutlinedTextField(
             value = title,
             onValueChange = { title = it },
-            label = { Text("Task title") },
+            label = { Text("What needs to be done?") },
             singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(focusRequester),
             shape = RoundedCornerShape(14.dp),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedTextColor = MonoPalette.PureWhite,
@@ -1134,14 +1214,14 @@ private fun MonoTaskEditorSheet(
                 )
             ) {
                 Text(
-                    text = if (initialTask == null) "Add Task" else "Save Changes",
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                    text = if (initialTask == null) "Add Task" else "Save",
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp)
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(10.dp))
     }
 }
 
@@ -1151,29 +1231,18 @@ private fun SelectableMonoChip(
     selected: Boolean,
     onClick: () -> Unit
 ) {
-    val bg by animateColorAsState(
-        targetValue = if (selected) MonoPalette.PureWhite else MonoPalette.Charcoal,
-        animationSpec = tween(190),
-        label = "chipBg"
-    )
-    val fg by animateColorAsState(
-        targetValue = if (selected) MonoPalette.PureBlack else MonoPalette.Mist,
-        animationSpec = tween(190),
-        label = "chipFg"
-    )
-
     Surface(
-        modifier = Modifier.bounceClick(scaleDown = 0.93f, onClick = onClick),
         shape = RoundedCornerShape(50),
-        color = bg,
-        border = BorderStroke(1.dp, if (selected) MonoPalette.PureWhite else MonoPalette.Graphite)
+        color = if (selected) MonoPalette.PureWhite else MonoPalette.Charcoal,
+        border = BorderStroke(1.dp, if (selected) MonoPalette.PureWhite else MonoPalette.Graphite),
+        onClick = onClick
     ) {
         Text(
             text = label,
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
             style = MaterialTheme.typography.labelMedium,
-            color = fg,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+            color = if (selected) MonoPalette.PureBlack else MonoPalette.SoftSurface,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
         )
     }
 }

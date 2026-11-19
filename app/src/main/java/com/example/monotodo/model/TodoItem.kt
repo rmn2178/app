@@ -5,7 +5,7 @@ import java.util.UUID
 
 enum class Priority(val label: String) {
     LOW("Low"),
-    MEDIUM("Medium"),
+    MEDIUM("Normal"),
     HIGH("High")
 }
 
@@ -21,6 +21,24 @@ enum class TodoFilter(val label: String) {
     ACTIVE("Active"),
     DONE("Done")
 }
+
+enum class SoundPack(val label: String, val subtitle: String) {
+    SOFT("Soft", "Warm muted"),
+    CRISP("Crisp", "Micro click"),
+    ZEN("Zen", "Airy drop")
+}
+
+@Immutable
+data class SoundSettings(
+    val enabled: Boolean = true,
+    val volume: Float = 0.35f,
+    val pack: SoundPack = SoundPack.SOFT,
+    val onComplete: Boolean = true,
+    val onAdd: Boolean = true,
+    val onDelete: Boolean = false,
+    val onTap: Boolean = false,
+    val hapticsEnabled: Boolean = true
+)
 
 @Immutable
 data class TodoItem(

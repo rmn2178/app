@@ -1,1 +1,2 @@
 -keep class com.example.monotodo.model.** { *; }
+-keep class com.example.monotodo.audio.** { *; }
