@@ -500,7 +500,7 @@ fun MonoTodoScreen(repository: TodoRepository) {
                                     tasks = tasks.filterNot { it.id == task.id }
                                     scope.launch {
                                         val result = snackbarHostState.showSnackbar(
-                                            message = "Removed "${task.title}"",
+                                            message = "Removed '${task.title}'",
                                             actionLabel = "Undo",
                                             duration = SnackbarDuration.Short
                                         )
@@ -696,7 +696,7 @@ private fun AnimatedMonoTaskCard(
                     .clickable(onClick = onToggle),
                 contentAlignment = Alignment.Center
             ) {
-                AnimatedVisibility(
+                androidx.compose.animation.AnimatedVisibility(
                     visible = task.isDone,
                     enter = scaleIn(
                         animationSpec = spring(
